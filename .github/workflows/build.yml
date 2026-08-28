@@ -39,7 +39,13 @@ jobs:
 
       - name: List build output (debug aid)
         if: always()
-        run: find bin -type f -name '*.ipk' || true
+        run: |
+          echo "workspace: $GITHUB_WORKSPACE"
+          echo "--- top-level workspace listing ---"
+          ls -la .
+          echo "--- any .ipk under the workspace ---"
+          find . -name '*.ipk' 2>&1
+          echo "--- done ---"
 
       - name: Upload ipk artifact
         uses: actions/upload-artifact@v4
