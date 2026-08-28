@@ -26,6 +26,20 @@ jobs:
   build:
     needs: lint
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            sdk_arch: x86-64-openwrt-25.12
+          - arch: arm
+            sdk_arch: arm_cortex-a7-openwrt-25.12
+          - arch: arm64
+            sdk_arch: aarch64_generic-openwrt-25.12
+          - arch: mips
+            sdk_arch: mips_24kc-openwrt-25.12
+          - arch: mips64
+            sdk_arch: mips64_mips64r2-openwrt-25.12
     steps:
       - uses: actions/checkout@v4
         with:
@@ -34,7 +48,7 @@ jobs:
       - name: Build package with the OpenWrt SDK
         uses: openwrt/gh-action-sdk@main
         env:
-          ARCH: x86-64-openwrt-25.12
+          ARCH: ${{ matrix.sdk_arch }}
           PACKAGES: luci-app-netifyd
 
       - name: List build output (debug aid)
@@ -50,7 +64,7 @@ jobs:
       - name: Upload apk artifact
         uses: actions/upload-artifact@v4
         with:
-          name: luci-app-netifyd-apk
+          name: luci-app-netifyd-apk-${{ matrix.arch }}
           path: bin/**/luci-app-netifyd*.apk
           if-no-files-found: error
 
@@ -61,10 +75,16 @@ jobs:
     permissions:
       contents: write
     steps:
+      # luci-app-netifyd is architecture-independent (LUCI_PKGARCH:=all, pure
+      # shell/JS, nothing compiled), so every matrix arch produces the same
+      # package content. The matrix above exists to catch feed/build
+      # incompatibilities on each architecture; only the x86_64 build's
+      # output is actually attached to the release to avoid publishing
+      # several identical .apk files under different names.
       - name: Download apk artifact
         uses: actions/download-artifact@v4
         with:
-          name: luci-app-netifyd-apk
+          name: luci-app-netifyd-apk-x86_64
           path: dist
 
       - name: Attach apk to GitHub release
