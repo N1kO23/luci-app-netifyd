@@ -104,16 +104,26 @@ reader_loop() {
 				digest=$(sanitize_digest "$digest")
 				[ -z "$digest" ] && continue
 
-				printf '%s' "$line" | jq -c --argjson now "$(date +%s)" \
-					'.flow | {
-						local_ip, local_port, other_ip, other_port,
-						protocol: .detected_protocol_name,
-						application: .detected_application_name,
-						category: (.category.application // .category.domain // .category.protocol // null),
-						host_server_name,
-						started_at: $now
-					}' > "$ACTIVE_DIR/$digest.json.tmp" 2>/dev/null &&
-					mv "$ACTIVE_DIR/$digest.json.tmp" "$ACTIVE_DIR/$digest.json"
+				# netifyd still emits "flow" for non-IP traffic (ARP, other
+				# L2-only frames) with empty local_ip/other_ip, which has
+				# nothing meaningful to log for an IP traffic history.
+				meta=$(printf '%s' "$line" | jq -c --argjson now "$(date +%s)" \
+					'.flow |
+					if ((.local_ip // "") != "" and (.other_ip // "") != "") then
+						{
+							local_ip, local_port, other_ip, other_port,
+							protocol: .detected_protocol_name,
+							application: .detected_application_name,
+							category: (.category.application // .category.domain // .category.protocol // null),
+							host_server_name,
+							started_at: $now
+						}
+					else empty end' 2>/dev/null)
+
+				if [ -n "$meta" ]; then
+					printf '%s\n' "$meta" > "$ACTIVE_DIR/$digest.json.tmp" &&
+						mv "$ACTIVE_DIR/$digest.json.tmp" "$ACTIVE_DIR/$digest.json"
+				fi
 				;;
 			flow_stats|flow_purge)
 				# Without a cached "flow" metadata event there's nothing

@@ -78,6 +78,16 @@ reader_loop() {
 					existing=$(cat "$FLOWS_DIR/$digest.json")
 				elif [ "$type" = "flow_stats" ]; then
 					continue
+				else
+					# First sighting of this digest, via a "flow" event:
+					# only track it if it has real addresses. netifyd still
+					# emits "flow" for non-IP traffic (ARP, other L2-only
+					# frames) with empty local_ip/other_ip, which has
+					# nothing meaningful to show on an IP traffic dashboard.
+					has_addrs=$(printf '%s' "$line" | jq -r \
+						'if ((.flow.local_ip // "") != "" and (.flow.other_ip // "") != "") then 1 else 0 end' \
+						2>/dev/null)
+					[ "$has_addrs" = "1" ] || continue
 				fi
 
 				jq -n --argjson existing "$existing" \
