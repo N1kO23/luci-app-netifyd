@@ -14,7 +14,7 @@ jobs:
 
       - name: Shellcheck
         run: |
-          find root -type f \( -name '*.sh' -path '*/init.d/*' -o -path '*/rpcd/*' \) -print0 \
+          find root/etc/init.d root/usr/libexec -type f -print0 \
             | xargs -0 shellcheck --severity=warning --exclude=SC3043
 
       - name: Validate JSON
