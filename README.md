@@ -6,6 +6,11 @@ classification (protocol, application, category), top talkers and agent
 status, sourced directly from netifyd's own local JSON socket — no
 port-number guessing, no `/proc/net/nf_conntrack` scraping.
 
+This repo contains two packages: `luci-app-netifyd` (the live dashboard,
+described below) and the optional `luci-app-netifyd-history`
+([its own section](#optional-persistent-history-luci-app-netifyd-history))
+for persisting traffic history to SQLite.
+
 ## How it works
 
 ```text
@@ -62,6 +67,61 @@ what's configured under **Status → Netifyd → Settings**, update it there.
 | `idle_ttl` | `300` | Seconds of inactivity before a flow is dropped |
 | `max_flows` | `500` | Max flows returned to the UI per request |
 
+## Optional: persistent history (`luci-app-netifyd-history`)
+
+`luci-app-netifyd`'s live dashboard deliberately keeps no persistent state —
+active flows live in tmpfs and are capped at `max_flows`, so nothing
+survives a reboot and there's no way to look back at traffic trends.
+`luci-app-netifyd-history` is a separate, optional package that adds that:
+a second, independent connection to netifyd's socket logs completed flows
+and periodic per-protocol/application/category traffic rollups into a
+SQLite database, with a new History page to browse them.
+
+It's fully decoupled from the base package — installing it doesn't change
+anything about the live dashboard, and it can be removed at any time without
+affecting it.
+
+```text
+netifyd  ──(2nd independent socket connection)──>  history-collector.sh (procd service)
+                                                              │
+                                          batched write, every rollup_interval
+                                                              │
+                                                SQLite db at UCI-configured db_path
+                                                              │
+                                 /usr/libexec/rpcd/luci.netifyd-history (ubus)
+                                                              │
+                                              LuCI JS view: History
+```
+
+### Setup
+
+There's no settings page for this package yet, so configure it via UCI
+directly. `db_path` has **no default** — the service stays idle until you
+set one, so writes never land on the router's flash without an explicit
+choice. Point it at durable external storage (a mounted USB/SD card) if you
+have one; if not, be aware every write goes to the router's own flash:
+
+```sh
+uci set netifyd-luci-history.main.db_path=/mnt/usb/netifyd-history.db
+uci set netifyd-luci-history.main.enabled=1
+uci commit netifyd-luci-history
+/etc/init.d/netifyd-history restart
+```
+
+The History page appears under **Status → Netifyd** once this package (and
+therefore `sqlite3-cli`) is installed.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `enabled` | `0` | Enable the history collector service |
+| `db_path` | *(empty)* | Path to the SQLite database file; service stays idle until set |
+| `retention_days` | `7` | How long completed flows and rollups are kept before being pruned |
+| `rollup_interval` | `60` | Seconds between batched database writes, and the bucket size for traffic rollups |
+
+Writes are always batched (once per `rollup_interval`, in a single
+transaction), never per-flow-event, to keep this reasonable on flash
+storage. Pruning of data older than `retention_days` runs hourly.
+
 ## Installing a CI-built package
 
 The GitHub Actions build isn't signed with a key your router trusts, so
@@ -72,10 +132,11 @@ ERROR: ./luci-app-netifyd_1.0.0-1_all.apk: UNTRUSTED signature
 ```
 
 Install it explicitly as untrusted (fine for a package you built/reviewed
-yourself):
+yourself); same for `luci-app-netifyd-history` if you want it too:
 
 ```sh
 apk add --allow-untrusted ./luci-app-netifyd_1.0.0-1_all.apk
+apk add --allow-untrusted ./luci-app-netifyd-history_1.0.0-1_all.apk
 ```
 
 (On an `opkg`-based release, i.e. 24.10 and earlier, the equivalent is
@@ -84,15 +145,18 @@ locally-supplied packages at all.)
 
 ## Building
 
-This is a standard third-party LuCI application package. To build it against
-the OpenWrt SDK, add it as a feed alongside the official `luci` feed and
-build normally:
+These are standard third-party LuCI application packages, each in its own
+top-level directory (`luci-app-netifyd/`, `luci-app-netifyd-history/`). To
+build them against the OpenWrt SDK, add this repo as a feed alongside the
+official `luci` feed and build normally — the feed scan picks up both
+packages automatically:
 
 ```sh
 echo "src-link luci_app_netifyd $(pwd)" >> feeds.conf.default
 ./scripts/feeds update luci_app_netifyd luci
 ./scripts/feeds install -a -p luci_app_netifyd
 make package/luci-app-netifyd/compile V=s
+make package/luci-app-netifyd-history/compile V=s
 ```
 
 CI (`.github/workflows/build.yml`) does this automatically on every push/PR

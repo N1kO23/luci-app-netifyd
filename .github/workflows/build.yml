@@ -14,14 +14,16 @@ jobs:
 
       - name: Shellcheck
         run: |
-          find luci-app-netifyd/root/etc/init.d luci-app-netifyd/root/usr/libexec -type f -print0 \
+          find luci-app-netifyd/root/etc/init.d luci-app-netifyd/root/usr/libexec \
+               luci-app-netifyd-history/root/etc/init.d luci-app-netifyd-history/root/usr/libexec \
+               -type f -not -name '*.jq' -print0 \
             | xargs -0 shellcheck --severity=warning --exclude=SC3043
 
       - name: Validate JSON
         run: find . -name '*.json' -not -path './.git/*' -print0 | xargs -0 -n1 jq empty
 
       - name: Validate JS syntax
-        run: find luci-app-netifyd/htdocs -name '*.js' -print0 | xargs -0 -n1 node --check
+        run: find luci-app-netifyd/htdocs luci-app-netifyd-history/htdocs -name '*.js' -print0 | xargs -0 -n1 node --check
 
   build:
     needs: lint
@@ -49,7 +51,7 @@ jobs:
         uses: openwrt/gh-action-sdk@main
         env:
           ARCH: ${{ matrix.sdk_arch }}
-          PACKAGES: luci-app-netifyd
+          PACKAGES: luci-app-netifyd luci-app-netifyd-history
 
       - name: List build output (debug aid)
         if: always()
@@ -75,11 +77,12 @@ jobs:
     permissions:
       contents: write
     steps:
-      # luci-app-netifyd is architecture-independent (LUCI_PKGARCH:=all, pure
+      # Both packages are architecture-independent (LUCI_PKGARCH:=all, pure
       # shell/JS, nothing compiled), so every matrix arch produces the same
       # package content. The matrix above exists to catch feed/build
       # incompatibilities on each architecture; only the x86_64 build's
-      # output is actually attached to the release to avoid publishing
+      # output (both luci-app-netifyd and luci-app-netifyd-history .apk
+      # files) is actually attached to the release, to avoid publishing
       # several identical .apk files under different names.
       - name: Download apk artifact
         uses: actions/download-artifact@v4

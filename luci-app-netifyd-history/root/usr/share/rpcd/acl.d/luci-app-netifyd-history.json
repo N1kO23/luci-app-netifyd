@@ -1,0 +1,11 @@
+{
+	"luci-app-netifyd-history": {
+		"description": "Grant access to netifyd history statistics",
+		"read": {
+			"ubus": {
+				"luci.netifyd-history": [ "status", "series", "flows" ]
+			},
+			"uci": [ "netifyd-luci-history" ]
+		}
+	}
+}

@@ -1,0 +1,110 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# ubus/rpcd JSON backend for luci-app-netifyd-history. Read-only queries
+# against the SQLite database written by history-collector.sh, plus UCI.
+
+. /lib/functions.sh
+
+RUN_DIR="/var/run/netifyd-history"
+STATUS_FILE="$RUN_DIR/status.json"
+
+config_load netifyd-luci-history
+config_get DB_PATH main db_path ""
+
+sql_escape() {
+	printf '%s' "$1" | sed "s/'/''/g"
+}
+
+# sqlite3 -json prints literally nothing (not "[]") for a zero-row result,
+# and piping zero bytes into jq runs the filter zero times rather than
+# once on an empty array -- so a query result has to be captured and
+# defaulted before jq ever sees it, or "no rows matched" silently produces
+# no ubus response at all instead of an empty result.
+query_json_array() {
+	result=$(sqlite3 -json "$DB_PATH" "$1" 2>/dev/null)
+	[ -n "$result" ] || result='[]'
+	printf '%s' "$result"
+}
+
+to_int() {
+	# $1 = value, $2 = default. Only accepts plain unsigned digit strings.
+	case "$1" in
+	'' | *[!0-9]*) echo "$2" ;;
+	*) echo "$1" ;;
+	esac
+}
+
+case "$1" in
+list)
+	echo '{
+		"status": {},
+		"series": { "dimension": "protocol", "since": 0, "until": 0 },
+		"flows": { "since": 0, "until": 0, "protocol": "", "application": "", "ip": "", "limit": 0, "offset": 0 }
+	}'
+	;;
+call)
+	read -r input
+
+	case "$2" in
+	status)
+		collector='{"connected":false,"message":"collector not running","db_path":"","updated_at":0}'
+		[ -s "$STATUS_FILE" ] && collector=$(cat "$STATUS_FILE")
+
+		range='{}'
+		if [ -n "$DB_PATH" ] && [ -s "$DB_PATH" ]; then
+			range=$(sqlite3 -json "$DB_PATH" \
+				"SELECT MIN(started_at) AS oldest, MAX(ended_at) AS newest, (SELECT COUNT(*) FROM flows) AS flow_count FROM flows;" \
+				2>/dev/null | jq -c '.[0] // {}')
+		fi
+
+		jq -n --argjson collector "$collector" --argjson range "$range" \
+			'{collector: $collector, db: $range}'
+		;;
+	series)
+		dimension=$(printf '%s' "$input" | jq -r '.dimension // "protocol"' 2>/dev/null)
+		case "$dimension" in
+		protocol | application | category) ;;
+		*) dimension=protocol ;;
+		esac
+		since=$(to_int "$(printf '%s' "$input" | jq -r '.since // 0' 2>/dev/null)" 0)
+		until_ts=$(to_int "$(printf '%s' "$input" | jq -r '.until // 0' 2>/dev/null)" "$(date +%s)")
+
+		if [ -n "$DB_PATH" ] && [ -s "$DB_PATH" ]; then
+			query_json_array \
+				"SELECT bucket_start, key, bytes, packets, flows FROM rollups WHERE dimension='$(sql_escape "$dimension")' AND bucket_start BETWEEN $since AND $until_ts ORDER BY bucket_start;" \
+				| jq -c '{series: .}'
+		else
+			echo '{"series":[]}'
+		fi
+		;;
+	flows)
+		since=$(to_int "$(printf '%s' "$input" | jq -r '.since // 0' 2>/dev/null)" 0)
+		until_ts=$(to_int "$(printf '%s' "$input" | jq -r '.until // 0' 2>/dev/null)" "$(date +%s)")
+		limit=$(to_int "$(printf '%s' "$input" | jq -r '.limit // 0' 2>/dev/null)" 200)
+		offset=$(to_int "$(printf '%s' "$input" | jq -r '.offset // 0' 2>/dev/null)" 0)
+		[ "$limit" -gt 0 ] || limit=200
+		[ "$limit" -gt 2000 ] && limit=2000
+
+		where="ended_at BETWEEN $since AND $until_ts"
+
+		protocol=$(printf '%s' "$input" | jq -r '.protocol // empty' 2>/dev/null)
+		[ -n "$protocol" ] && where="$where AND protocol='$(sql_escape "$protocol")'"
+
+		application=$(printf '%s' "$input" | jq -r '.application // empty' 2>/dev/null)
+		[ -n "$application" ] && where="$where AND application='$(sql_escape "$application")'"
+
+		ip=$(printf '%s' "$input" | jq -r '.ip // empty' 2>/dev/null)
+		[ -n "$ip" ] && where="$where AND (local_ip='$(sql_escape "$ip")' OR other_ip='$(sql_escape "$ip")')"
+
+		if [ -n "$DB_PATH" ] && [ -s "$DB_PATH" ]; then
+			query_json_array \
+				"SELECT digest, started_at, ended_at, local_ip, local_port, other_ip, other_port, protocol, application, category, host_server_name, total_bytes, total_packets FROM flows WHERE $where ORDER BY ended_at DESC LIMIT $limit OFFSET $offset;" \
+				| jq -c '{flows: .}'
+		else
+			echo '{"flows":[]}'
+		fi
+		;;
+	esac
+	;;
+esac

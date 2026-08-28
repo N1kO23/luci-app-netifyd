@@ -1,0 +1,16 @@
+{
+	"admin/status/netifyd/history": {
+		"title": "History",
+		"order": 25,
+		"action": {
+			"type": "view",
+			"path": "netifyd/history"
+		},
+		"depends": {
+			"acl": [ "luci-app-netifyd-history" ],
+			"fs": {
+				"/usr/bin/sqlite3": "executable"
+			}
+		}
+	}
+}
