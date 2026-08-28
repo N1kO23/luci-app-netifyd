@@ -56,14 +56,31 @@ reader_loop() {
 		while IFS= read -r line; do
 			type=$(printf '%s' "$line" | jq -r '.type // empty' 2>/dev/null)
 			case "$type" in
-			flow)
+			flow|flow_stats)
+				# "flow" carries metadata only (ips, ports, protocol/app
+				# names); byte/packet counters only arrive later via
+				# "flow_stats" (periodic, active flows) or "flow_purge"
+				# (final, on close). Merge onto the existing record
+				# instead of overwriting so a later metadata-only event
+				# can't wipe out byte counts learned from an earlier one.
 				digest=$(printf '%s' "$line" | jq -r '.flow.digest // empty' 2>/dev/null)
 				[ -z "$digest" ] && continue
 				digest=$(sanitize_digest "$digest")
 				[ -z "$digest" ] && continue
-				printf '%s' "$line" | jq -c --argjson now "$(date +%s)" '.flow + {seen_at:$now}' \
+
+				existing='{}'
+				[ -s "$FLOWS_DIR/$digest.json" ] && existing=$(cat "$FLOWS_DIR/$digest.json")
+
+				jq -n --argjson existing "$existing" \
+					--argjson new "$(printf '%s' "$line" | jq -c '.flow')" \
+					--argjson now "$(date +%s)" \
+					'$existing * $new * {seen_at: $now}' \
 					> "$FLOWS_DIR/$digest.json.tmp" 2>/dev/null &&
 					mv "$FLOWS_DIR/$digest.json.tmp" "$FLOWS_DIR/$digest.json"
+				;;
+			flow_purge)
+				digest=$(printf '%s' "$line" | jq -r '.flow.digest // empty' 2>/dev/null)
+				[ -n "$digest" ] && rm -f "$FLOWS_DIR/$(sanitize_digest "$digest").json"
 				;;
 			agent_hello|agent_status)
 				merge_agent_field "$line"

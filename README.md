@@ -62,6 +62,26 @@ what's configured under **Status → Netifyd → Settings**, update it there.
 | `idle_ttl` | `300` | Seconds of inactivity before a flow is dropped |
 | `max_flows` | `500` | Max flows returned to the UI per request |
 
+## Installing a CI-built package
+
+The GitHub Actions build isn't signed with a key your router trusts, so
+`apk` will refuse it by default:
+
+```text
+ERROR: ./luci-app-netifyd_1.0.0-1_all.apk: UNTRUSTED signature
+```
+
+Install it explicitly as untrusted (fine for a package you built/reviewed
+yourself):
+
+```sh
+apk add --allow-untrusted ./luci-app-netifyd_1.0.0-1_all.apk
+```
+
+(On an `opkg`-based release, i.e. 24.10 and earlier, the equivalent is
+`opkg install ./luci-app-netifyd_*.ipk`, which doesn't verify signatures for
+locally-supplied packages at all.)
+
 ## Building
 
 This is a standard third-party LuCI application package. To build it against
