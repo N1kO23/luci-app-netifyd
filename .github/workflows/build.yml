@@ -90,4 +90,4 @@ jobs:
       - name: Attach apk to GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*.apk
+          files: dist/**/luci-app-netifyd*.apk
