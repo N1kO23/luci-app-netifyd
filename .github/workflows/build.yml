@@ -2,8 +2,8 @@ name: Build
 
 on:
   push:
-    branches: [ master ]
-    tags: [ 'v*' ]
+    branches: [master]
+    tags: ["v*"]
   pull_request:
 
 jobs:
@@ -43,15 +43,15 @@ jobs:
           echo "workspace: $GITHUB_WORKSPACE"
           echo "--- top-level workspace listing ---"
           ls -la .
-          echo "--- any .ipk under the workspace ---"
-          find . -name '*.ipk' 2>&1
+          echo "--- any .apk under the workspace ---"
+          find . -name '*.apk' 2>&1
           echo "--- done ---"
 
-      - name: Upload ipk artifact
+      - name: Upload apk artifact
         uses: actions/upload-artifact@v4
         with:
-          name: luci-app-netifyd-ipk
-          path: bin/**/luci-app-netifyd*.ipk
+          name: luci-app-netifyd-apk
+          path: bin/**/luci-app-netifyd*.apk
           if-no-files-found: error
 
   release:
@@ -61,13 +61,13 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Download ipk artifact
+      - name: Download apk artifact
         uses: actions/download-artifact@v4
         with:
-          name: luci-app-netifyd-ipk
+          name: luci-app-netifyd-apk
           path: dist
 
-      - name: Attach ipk to GitHub release
+      - name: Attach apk to GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*.ipk
+          files: dist/*.apk
