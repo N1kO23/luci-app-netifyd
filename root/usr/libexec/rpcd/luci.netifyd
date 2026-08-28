@@ -1,0 +1,59 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# ubus/rpcd JSON backend for luci-app-netifyd. Only ever does cheap reads of
+# the collector's snapshot file (see /usr/libexec/netifyd-luci/collector.sh)
+# and UCI, matching rpcd's stateless per-call invocation model.
+
+. /lib/functions.sh
+
+RUN_DIR="/var/run/netifyd-luci"
+SNAPSHOT="$RUN_DIR/snapshot.json"
+STATUS_FILE="$RUN_DIR/status.json"
+
+case "$1" in
+list)
+	echo '{
+		"status": {},
+		"overview": {},
+		"flows": { "limit": 0 }
+	}'
+	;;
+call)
+	read -r input
+
+	case "$2" in
+	status)
+		if [ -s "$STATUS_FILE" ]; then
+			cat "$STATUS_FILE"
+		else
+			echo '{"connected":false,"message":"collector not running","updated_at":0}'
+		fi
+		;;
+	overview)
+		if [ -s "$SNAPSHOT" ]; then
+			jq -c 'del(.flows)' "$SNAPSHOT"
+		else
+			echo '{"generated_at":0,"agent":{},"flow_count":0,"total_bytes":0,"by_protocol":[],"by_application":[],"by_category":[],"top_talkers":[]}'
+		fi
+		;;
+	flows)
+		limit=$(printf '%s' "$input" | jq -r '.limit // 0' 2>/dev/null)
+		[ -z "$limit" ] && limit=0
+
+		config_load netifyd-luci
+		config_get max_flows main max_flows 500
+
+		if [ "$limit" -gt 0 ] 2>/dev/null && [ "$limit" -lt "$max_flows" ]; then
+			max_flows="$limit"
+		fi
+
+		if [ -s "$SNAPSHOT" ]; then
+			jq -c --argjson n "$max_flows" '{flows: (.flows[0:$n])}' "$SNAPSHOT"
+		else
+			echo '{"flows":[]}'
+		fi
+		;;
+	esac
+	;;
+esac

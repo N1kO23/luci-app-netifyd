@@ -1,0 +1,4 @@
+*.ipk
+*.swp
+.DS_Store
+.claude/

@@ -1,0 +1,17 @@
+{
+	"luci-app-netifyd": {
+		"description": "Grant access to netifyd statistics",
+		"read": {
+			"ubus": {
+				"luci.netifyd": [ "status", "overview", "flows" ]
+			},
+			"uci": [ "netifyd-luci" ]
+		},
+		"write": {
+			"uci": [ "netifyd-luci" ],
+			"ubus": {
+				"rc": [ "init" ]
+			}
+		}
+	}
+}

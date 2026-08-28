@@ -1,0 +1,35 @@
+#!/bin/sh /etc/rc.common
+#
+# SPDX-License-Identifier: GPL-2.0-only
+
+USE_PROCD=1
+START=95
+STOP=10
+
+PROG=/usr/libexec/netifyd-luci/collector.sh
+
+start_service() {
+	local enabled
+
+	config_load netifyd-luci
+	config_get_bool enabled main enabled 1
+	[ "$enabled" -eq 0 ] && return 0
+
+	mkdir -p /var/run/netifyd-luci
+
+	procd_open_instance
+	procd_set_param command "$PROG"
+	procd_set_param respawn
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_close_instance
+}
+
+reload_service() {
+	stop
+	start
+}
+
+service_triggers() {
+	procd_add_reload_trigger "netifyd-luci"
+}

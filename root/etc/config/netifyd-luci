@@ -1,0 +1,7 @@
+
+config netifyd-luci 'main'
+	option enabled '1'
+	option socket_path '/var/run/netifyd/netifyd.sock'
+	option poll_interval '5'
+	option idle_ttl '300'
+	option max_flows '500'
