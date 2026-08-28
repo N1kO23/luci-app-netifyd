@@ -8,7 +8,7 @@ port-number guessing, no `/proc/net/nf_conntrack` scraping.
 
 ## How it works
 
-```
+```text
 netifyd  ──(UNIX socket, streaming JSON)──>  netifyd-luci collector (procd service)
                                                       │
                                               snapshot.json (tmpfs)
@@ -54,13 +54,13 @@ what's configured under **Status → Netifyd → Settings**, update it there.
 
 ## UCI configuration (`/etc/config/netifyd-luci`)
 
-| Option           | Default                          | Description                                         |
-|-------------------|-----------------------------------|------------------------------------------------------|
-| `enabled`         | `1`                                | Enable the collector service                          |
-| `socket_path`     | `/var/run/netifyd/netifyd.sock`   | Path to netifyd's local JSON socket                    |
-| `poll_interval`   | `5`                                | Seconds between snapshot rebuilds                      |
-| `idle_ttl`        | `300`                              | Seconds of inactivity before a flow is dropped         |
-| `max_flows`       | `500`                              | Max flows returned to the UI per request               |
+| Option | Default | Description |
+| --- | --- | --- |
+| `enabled` | `1` | Enable the collector service |
+| `socket_path` | `/var/run/netifyd/netifyd.sock` | Path to netifyd's local JSON socket |
+| `poll_interval` | `5` | Seconds between snapshot rebuilds |
+| `idle_ttl` | `300` | Seconds of inactivity before a flow is dropped |
+| `max_flows` | `500` | Max flows returned to the UI per request |
 
 ## Building
 
@@ -76,8 +76,10 @@ make package/luci-app-netifyd/compile V=s
 ```
 
 CI (`.github/workflows/build.yml`) does this automatically on every push/PR
-using the official OpenWrt SDK container, and attaches the built `.ipk` to
-GitHub Releases on tagged commits.
+using the official OpenWrt SDK container (currently targeting the 25.12
+branch, which builds `.apk` packages — OpenWrt replaced opkg/`.ipk` with the
+`apk` package manager as of 25.12), and attaches the built package to GitHub
+Releases on tagged commits.
 
 ## License
 
