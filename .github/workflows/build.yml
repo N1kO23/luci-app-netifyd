@@ -37,11 +37,15 @@ jobs:
           ARCH: x86-64-openwrt-25.12
           PACKAGES: luci-app-netifyd
 
+      - name: List build output (debug aid)
+        if: always()
+        run: find bin -type f -name '*.ipk' || true
+
       - name: Upload ipk artifact
         uses: actions/upload-artifact@v4
         with:
           name: luci-app-netifyd-ipk
-          path: bin/packages/*/*/luci-app-netifyd*.ipk
+          path: bin/**/luci-app-netifyd*.ipk
           if-no-files-found: error
 
   release:
