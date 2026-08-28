@@ -22,6 +22,7 @@ config_get POLL_INTERVAL main poll_interval 5
 config_get IDLE_TTL main idle_ttl 300
 
 mkdir -p "$FLOWS_DIR"
+rm -f "$FLOWS_DIR"/*.json
 : > "$AGENT_FILE"
 
 write_status() {
@@ -57,19 +58,27 @@ reader_loop() {
 			type=$(printf '%s' "$line" | jq -r '.type // empty' 2>/dev/null)
 			case "$type" in
 			flow|flow_stats)
-				# "flow" carries metadata only (ips, ports, protocol/app
-				# names); byte/packet counters only arrive later via
-				# "flow_stats" (periodic, active flows) or "flow_purge"
-				# (final, on close). Merge onto the existing record
-				# instead of overwriting so a later metadata-only event
-				# can't wipe out byte counts learned from an earlier one.
+				# "flow" carries metadata (ips, ports, protocol/app names)
+				# and is sent exactly once, at classification time.
+				# "flow_stats" carries only byte/packet counters, sent
+				# periodically for flows that are still active. A flow
+				# already established before we connected to the socket
+				# never gets a fresh "flow" event, so if we only know
+				# about it via "flow_stats" we have no metadata to show --
+				# skip creating a record for it rather than display a
+				# blank/unclassified row. "flow_stats" may still enrich a
+				# record we already have metadata for.
 				digest=$(printf '%s' "$line" | jq -r '.flow.digest // empty' 2>/dev/null)
 				[ -z "$digest" ] && continue
 				digest=$(sanitize_digest "$digest")
 				[ -z "$digest" ] && continue
 
 				existing='{}'
-				[ -s "$FLOWS_DIR/$digest.json" ] && existing=$(cat "$FLOWS_DIR/$digest.json")
+				if [ -s "$FLOWS_DIR/$digest.json" ]; then
+					existing=$(cat "$FLOWS_DIR/$digest.json")
+				elif [ "$type" = "flow_stats" ]; then
+					continue
+				fi
 
 				jq -n --argjson existing "$existing" \
 					--argjson new "$(printf '%s' "$line" | jq -c '.flow')" \
