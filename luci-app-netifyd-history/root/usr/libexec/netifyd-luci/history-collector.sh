@@ -36,6 +36,8 @@ rm -f "$ACTIVE_DIR"/*.json
 : > "$PENDING_ROLLUPS"
 : > "$PENDING_FLOWS"
 
+TAB=$(printf '\t')
+
 write_status() {
 	# $1 = 0/1 connected to netifyd, $2 = human message
 	jq -n --argjson connected "$1" --arg message "$2" \
@@ -104,9 +106,8 @@ reader_loop() {
 			# based splitting collapses empty fields (e.g. a missing
 			# digest for non-flow messages), silently shifting later ones.
 			fields=$(printf '%s' "$line" | jq -r '[.type, (.flow.digest // "")] | @tsv' 2>/dev/null)
-			tab=$(printf '\t')
-			type=${fields%%"$tab"*}
-			digest=${fields#*"$tab"}
+			type=${fields%%"$TAB"*}
+			digest=${fields#*"$TAB"}
 			[ -n "$digest" ] && digest=$(sanitize_digest "$digest")
 
 			case "$type" in

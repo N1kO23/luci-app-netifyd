@@ -25,6 +25,8 @@ mkdir -p "$FLOWS_DIR"
 rm -f "$FLOWS_DIR"/*.json
 : > "$AGENT_FILE"
 
+TAB=$(printf '\t')
+
 write_status() {
 	# $1 = 0/1 connected, $2 = human message
 	jq -n --argjson connected "$1" --arg message "$2" --argjson now "$(date +%s)" \
@@ -64,12 +66,11 @@ reader_loop() {
 			fields=$(printf '%s' "$line" | jq -r \
 				'[.type, (.flow.digest // ""), (if ((.flow.local_ip // "") != "" and (.flow.other_ip // "") != "") then "1" else "0" end)] | @tsv' \
 				2>/dev/null)
-			tab=$(printf '\t')
 			rest=$fields
-			type=${rest%%"$tab"*}
-			rest=${rest#*"$tab"}
-			digest=${rest%%"$tab"*}
-			has_addrs=${rest#*"$tab"}
+			type=${rest%%"$TAB"*}
+			rest=${rest#*"$TAB"}
+			digest=${rest%%"$TAB"*}
+			has_addrs=${rest#*"$TAB"}
 			[ -n "$digest" ] && digest=$(sanitize_digest "$digest")
 
 			case "$type" in
