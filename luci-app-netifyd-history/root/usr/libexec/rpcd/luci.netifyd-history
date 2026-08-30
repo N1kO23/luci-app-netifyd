@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 #
 # ubus/rpcd JSON backend for luci-app-netifyd-history. Read-only queries
-# against the SQLite database written by history-collector.sh, plus UCI.
+# against the SQLite database written by history-writer.sh, plus UCI.
 
 . /lib/functions.sh
 
@@ -48,7 +48,7 @@ call)
 
 	case "$2" in
 	status)
-		collector='{"connected":false,"message":"collector not running","db_path":"","updated_at":0}'
+		collector='{"message":"history-writer not running yet","db_path":"","updated_at":0}'
 		[ -s "$STATUS_FILE" ] && collector=$(cat "$STATUS_FILE")
 
 		range='{}'

@@ -73,38 +73,61 @@ what's configured under **Status → Netifyd → Settings**, update it there.
 active flows live in tmpfs and are capped at `max_flows`, so nothing
 survives a reboot and there's no way to look back at traffic trends.
 `luci-app-netifyd-history` is a separate, optional package that adds that:
-a second, independent connection to netifyd's socket logs completed flows
-and periodic per-protocol/application/category traffic rollups into a
-SQLite database, with a new History page to browse them.
+completed flows and periodic per-protocol/application/category traffic
+rollups get logged to a SQLite database, with a new History page to browse
+them.
 
-It's fully decoupled from the base package — installing it doesn't change
-anything about the live dashboard, and it can be removed at any time without
-affecting it.
+It depends on `luci-app-netifyd` (`netifyd-luci`'s `collector.sh` is the
+only thing that talks to netifyd's socket — this package doesn't open a
+second connection and redo that work; it just consumes the pending records
+`collector.sh` writes when it sees this package is enabled), but it stays
+optional and inert: `collector.sh` behaves exactly as it does today unless
+`netifyd-luci-history` is both installed and `enabled=1`, and everything
+SQLite-specific (the schema, `sqlite3-cli`) lives entirely in this package.
 
 ```text
-netifyd  ──(2nd independent socket connection)──>  history-collector.sh (procd service)
-                                                              │
-                                          batched write, every rollup_interval
-                                                              │
-                                                SQLite db at UCI-configured db_path
-                                                              │
-                                 /usr/libexec/rpcd/luci.netifyd-history (ubus)
-                                                              │
-                                              LuCI JS view: History
+netifyd  ──(socket, streaming JSON)──>  netifyd-luci's collector.sh (sole reader)
+                                                      │
+                                    ┌─────────────────┴─────────────────┐
+                                    │                                   │
+                             FLOWS_DIR (live view,             if history enabled: pending
+                             as always)                        rollup/flow records appended to
+                                                                 /var/run/netifyd-history/*.jsonl
+                                                                            │
+                                                       history-writer.sh (procd service) --
+                                                       batches pending records into SQLite
+                                                       every rollup_interval, no socket
+                                                       connection of its own
+                                                                            │
+                                                       SQLite db at UCI-configured db_path
+                                                                            │
+                                          /usr/libexec/rpcd/luci.netifyd-history (ubus)
+                                                                            │
+                                                        LuCI JS view: History
 ```
+
+A flow whose classification broadcast was missed (e.g. it was already
+active before the collector's last restart) still gets logged, with
+`protocol` set to the literal `"Unclassified"` rather than being dropped —
+its IPs/ports genuinely aren't available in that case, but its traffic
+still counts.
 
 ### Setup
 
 There's no settings page for this package yet, so configure it via UCI
-directly. `db_path` has **no default** — the service stays idle until you
+directly. `db_path` has **no default** — nothing is written to it until you
 set one, so writes never land on the router's flash without an explicit
 choice. Point it at durable external storage (a mounted USB/SD card) if you
-have one; if not, be aware every write goes to the router's own flash:
+have one; if not, be aware every write goes to the router's own flash.
+Because `collector.sh` (the base package) only checks whether history is
+enabled at its own startup, enabling or disabling this package requires
+restarting **both** services, not just this one:
 
 ```sh
 uci set netifyd-luci-history.main.db_path=/mnt/usb/netifyd-history.db
 uci set netifyd-luci-history.main.enabled=1
 uci commit netifyd-luci-history
+/etc/init.d/netifyd-luci restart
 /etc/init.d/netifyd-history restart
 ```
 
@@ -113,7 +136,7 @@ therefore `sqlite3-cli`) is installed.
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `enabled` | `0` | Enable the history collector service |
+| `enabled` | `0` | Enable history logging (read by both `collector.sh` and the writer service) |
 | `db_path` | *(empty)* | Path to the SQLite database file; service stays idle until set |
 | `retention_days` | `7` | How long completed flows and rollups are kept before being pruned |
 | `rollup_interval` | `60` | Seconds between batched database writes, and the bucket size for traffic rollups |
