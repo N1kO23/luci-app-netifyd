@@ -55,7 +55,23 @@ reader_loop() {
 
 		socat -u "UNIX-CONNECT:${SOCKET_PATH}" - 2>/dev/null | jq -c '.' 2>/dev/null |
 		while IFS= read -r line; do
-			type=$(printf '%s' "$line" | jq -r '.type // empty' 2>/dev/null)
+			# One combined jq call instead of several: this loop is a
+			# strictly serial socket reader, so per-event process-spawn
+			# overhead directly shows up as lag on a busy network. Parsed
+			# via parameter expansion, not word-splitting -- IFS-based
+			# splitting collapses empty fields (e.g. a missing digest for
+			# non-flow messages), silently shifting later fields.
+			fields=$(printf '%s' "$line" | jq -r \
+				'[.type, (.flow.digest // ""), (if ((.flow.local_ip // "") != "" and (.flow.other_ip // "") != "") then "1" else "0" end)] | @tsv' \
+				2>/dev/null)
+			tab=$(printf '\t')
+			rest=$fields
+			type=${rest%%"$tab"*}
+			rest=${rest#*"$tab"}
+			digest=${rest%%"$tab"*}
+			has_addrs=${rest#*"$tab"}
+			[ -n "$digest" ] && digest=$(sanitize_digest "$digest")
+
 			case "$type" in
 			flow|flow_stats)
 				# "flow" carries metadata (ips, ports, protocol/app names)
@@ -68,38 +84,27 @@ reader_loop() {
 				# skip creating a record for it rather than display a
 				# blank/unclassified row. "flow_stats" may still enrich a
 				# record we already have metadata for.
-				digest=$(printf '%s' "$line" | jq -r '.flow.digest // empty' 2>/dev/null)
-				[ -z "$digest" ] && continue
-				digest=$(sanitize_digest "$digest")
 				[ -z "$digest" ] && continue
 
 				existing='{}'
 				if [ -s "$FLOWS_DIR/$digest.json" ]; then
 					existing=$(cat "$FLOWS_DIR/$digest.json")
-				elif [ "$type" = "flow_stats" ]; then
+				elif [ "$type" = "flow_stats" ] || [ "$has_addrs" != "1" ]; then
+					# No cached metadata for a stats-only event, or (first
+					# sighting via "flow") no real addresses -- netifyd
+					# still emits "flow" for non-IP traffic (ARP, other
+					# L2-only frames) with empty local_ip/other_ip.
 					continue
-				else
-					# First sighting of this digest, via a "flow" event:
-					# only track it if it has real addresses. netifyd still
-					# emits "flow" for non-IP traffic (ARP, other L2-only
-					# frames) with empty local_ip/other_ip, which has
-					# nothing meaningful to show on an IP traffic dashboard.
-					has_addrs=$(printf '%s' "$line" | jq -r \
-						'if ((.flow.local_ip // "") != "" and (.flow.other_ip // "") != "") then 1 else 0 end' \
-						2>/dev/null)
-					[ "$has_addrs" = "1" ] || continue
 				fi
 
-				jq -n --argjson existing "$existing" \
-					--argjson new "$(printf '%s' "$line" | jq -c '.flow')" \
+				jq -n --argjson existing "$existing" --argjson event "$line" \
 					--argjson now "$(date +%s)" \
-					'$existing * $new * {seen_at: $now}' \
+					'$existing * $event.flow * {seen_at: $now}' \
 					> "$FLOWS_DIR/$digest.json.tmp" 2>/dev/null &&
 					mv "$FLOWS_DIR/$digest.json.tmp" "$FLOWS_DIR/$digest.json"
 				;;
 			flow_purge)
-				digest=$(printf '%s' "$line" | jq -r '.flow.digest // empty' 2>/dev/null)
-				[ -n "$digest" ] && rm -f "$FLOWS_DIR/$(sanitize_digest "$digest").json"
+				[ -n "$digest" ] && rm -f "$FLOWS_DIR/$digest.json"
 				;;
 			agent_hello|agent_status)
 				merge_agent_field "$line"

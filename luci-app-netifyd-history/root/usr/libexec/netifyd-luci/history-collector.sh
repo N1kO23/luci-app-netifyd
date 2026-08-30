@@ -96,12 +96,21 @@ reader_loop() {
 
 		socat -u "UNIX-CONNECT:${SOCKET_PATH}" - 2>/dev/null | jq -c '.' 2>/dev/null |
 		while IFS= read -r line; do
-			type=$(printf '%s' "$line" | jq -r '.type // empty' 2>/dev/null)
+			# One combined jq call for type+digest instead of two separate
+			# ones: this loop is a strictly serial socket reader running
+			# alongside the live-dashboard collector's own reader, so
+			# per-event process-spawn overhead directly shows up as lag.
+			# Parsed via parameter expansion, not word-splitting -- IFS-
+			# based splitting collapses empty fields (e.g. a missing
+			# digest for non-flow messages), silently shifting later ones.
+			fields=$(printf '%s' "$line" | jq -r '[.type, (.flow.digest // "")] | @tsv' 2>/dev/null)
+			tab=$(printf '\t')
+			type=${fields%%"$tab"*}
+			digest=${fields#*"$tab"}
+			[ -n "$digest" ] && digest=$(sanitize_digest "$digest")
+
 			case "$type" in
 			flow)
-				digest=$(printf '%s' "$line" | jq -r '.flow.digest // empty' 2>/dev/null)
-				[ -z "$digest" ] && continue
-				digest=$(sanitize_digest "$digest")
 				[ -z "$digest" ] && continue
 
 				# netifyd still emits "flow" for non-IP traffic (ARP, other
@@ -129,9 +138,6 @@ reader_loop() {
 				# Without a cached "flow" metadata event there's nothing
 				# useful to attribute this delta to -- same rule as the
 				# live-dashboard collector's fix for the same reason.
-				digest=$(printf '%s' "$line" | jq -r '.flow.digest // empty' 2>/dev/null)
-				[ -z "$digest" ] && continue
-				digest=$(sanitize_digest "$digest")
 				[ -z "$digest" ] && continue
 				[ -s "$ACTIVE_DIR/$digest.json" ] || continue
 				meta=$(cat "$ACTIVE_DIR/$digest.json")
